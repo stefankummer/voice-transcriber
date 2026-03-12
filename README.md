@@ -8,6 +8,7 @@ Record your voice with a hotkey, the transcribed text is automatically pasted at
 
 ## Features
 
+- **Language support** — English (en) and French (fr)
 - **Multi-API cloud** — AssemblyAI, OpenAI, Google Gemini, Gemini Live (WebSocket), Rev.ai
 - **Local fallback** — Automatic faster-whisper if cloud fails
 - **Configurable profiles** — Switch between services from the tray icon
