@@ -1,0 +1,9 @@
+profiles.json
+voice_transcriber.log
+recordings/*
+__pycache__/
+*.pyc
+.venv/
+usage.json
+.restart
+.env
