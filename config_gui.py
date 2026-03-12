@@ -11,6 +11,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageDraw, ImageTk
+from locales import t, proto_name, proto_desc, model_desc
 
 # Set AppUserModelID so Windows uses our icon in the taskbar (not Python's)
 try:
@@ -26,33 +27,13 @@ PROFILES_FILE = os.path.join(SCRIPT_DIR, "profiles.json")
 #  Protocol definitions — how the API communicates, not which service it is
 # ═════════════════════════════════════════════════════════════════════════════
 
-PROTOCOLS = [
-    ("openai", "OpenAI Compatible",
-     "Envoi direct du fichier audio, réponse immédiate.\n"
-     "Fonctionne avec : OpenAI, Groq, Together AI, FastWhisper Server, "
-     "et tout endpoint compatible /v1/audio/transcriptions."),
+PROTOCOL_KEYS = ["openai", "assemblyai", "revai", "gemini", "gemini_live"]
 
-    ("assemblyai", "AssemblyAI",
-     "Upload du fichier, puis polling asynchrone pour le résultat.\n"
-     "Spécifique à l'API AssemblyAI."),
+def get_protocol_names():
+    return {k: proto_name(k) for k in PROTOCOL_KEYS}
 
-    ("revai", "Rev.ai",
-     "Upload multipart, polling asynchrone, puis récupération du transcript.\n"
-     "Spécifique à l'API Rev.ai."),
-
-    ("gemini", "Google Gemini (Multimodal)",
-     "Audio encodé en base64 envoyé dans un prompt multimodal.\n"
-     "Fonctionne avec les modèles Gemini (Flash, Pro, etc.)."),
-
-    ("gemini_live", "Gemini Live (WebSocket)",
-     "Streaming audio en temps réel via WebSocket.\n"
-     "Audio PCM 16kHz envoyé par chunks, transcription native.\n"
-     "Modèle : gemini-2.5-flash-native-audio-preview"),
-]
-
-PROTOCOL_KEYS   = [k for k, _, _ in PROTOCOLS]
-PROTOCOL_NAMES  = {k: n for k, n, _ in PROTOCOLS}
-PROTOCOL_DESCS  = {k: d for k, _, d in PROTOCOLS}
+def get_protocol_descs():
+    return {k: proto_desc(k) for k in PROTOCOL_KEYS}
 
 PROTOCOL_DEFAULTS = {
     "openai":      {"url": "https://api.openai.com",                      "model": "whisper-1"},
@@ -62,24 +43,11 @@ PROTOCOL_DEFAULTS = {
     "gemini_live": {"url": "wss://generativelanguage.googleapis.com",     "model": "gemini-2.5-flash-native-audio-preview-12-2025"},
 }
 
-WHISPER_MODELS = [
-    ("tiny",              "Tiny — Très rapide, qualité basique (~1 Go RAM)"),
-    ("tiny.en",           "Tiny EN — Anglais uniquement, très rapide"),
-    ("base",              "Base — Rapide, qualité correcte (~1 Go RAM)"),
-    ("base.en",           "Base EN — Anglais uniquement, rapide"),
-    ("small",             "Small — Bon compromis vitesse/qualité (~2 Go RAM)"),
-    ("small.en",          "Small EN — Anglais uniquement"),
-    ("medium",            "Medium — Bonne qualité (~5 Go RAM)"),
-    ("medium.en",         "Medium EN — Anglais uniquement"),
-    ("large-v1",          "Large v1 — Haute qualité (~10 Go RAM)"),
-    ("large-v2",          "Large v2 — Excellente qualité (~10 Go RAM)"),
-    ("large-v3",          "Large v3 — Meilleure qualité (~10 Go RAM)"),
-    ("turbo",             "Turbo — Large v3 accéléré, bon rapport qualité/vitesse"),
-    ("distil-small.en",   "Distil Small EN — Rapide, anglais uniquement"),
-    ("distil-medium.en",  "Distil Medium EN — Rapide, anglais uniquement"),
-    ("distil-large-v2",   "Distil Large v2 — Rapide, qualité proche de Large"),
-    ("distil-large-v3",   "Distil Large v3 — Rapide, qualité proche de Large v3"),
-    ("distil-large-v3.5", "Distil Large v3.5 — Le plus récent des modèles distillés"),
+WHISPER_MODEL_KEYS = [
+    "tiny", "tiny.en", "base", "base.en", "small", "small.en",
+    "medium", "medium.en", "large-v1", "large-v2", "large-v3", "turbo",
+    "distil-small.en", "distil-medium.en", "distil-large-v2",
+    "distil-large-v3", "distil-large-v3.5",
 ]
 
 LANGUAGES = [
@@ -230,7 +198,7 @@ class ProfileEditor(tk.Toplevel):
         data = profile_data or {}
 
         is_edit = bool(profile_name)
-        self.title("Modifier le profil" if is_edit else "Nouveau profil")
+        self.title(t("config.editor.title_edit") if is_edit else t("config.editor.title_new"))
         self.resizable(False, False)
         self.configure(bg=C.BG)
         self.transient(parent)
@@ -242,7 +210,7 @@ class ProfileEditor(tk.Toplevel):
         hdr = tk.Frame(self, bg=C.SURFACE, height=50)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
-        tk.Label(hdr, text="Modifier le profil" if is_edit else "Nouveau profil",
+        tk.Label(hdr, text=t("config.editor.title_edit") if is_edit else t("config.editor.title_new"),
                  font=F_H2, bg=C.SURFACE, fg=C.TEXT, padx=20).pack(side="left", fill="y")
 
         # Card
@@ -253,8 +221,8 @@ class ProfileEditor(tk.Toplevel):
 
         # ── Nom affiché ──────────────────────────────────────────────
         self.label_var = tk.StringVar(value=data.get("label", ""))
-        field_row(inner, "Nom du profil",
-                  "Nom affiché dans le menu et le tray icon",
+        field_row(inner, t("config.editor.name"),
+                  t("config.editor.name_desc"),
                   lambda p: tk.Entry(p, textvariable=self.label_var, font=F_BODY, width=28,
                                      bg=C.INPUT, fg=C.TEXT, insertbackground=C.TEXT,
                                      relief="flat", bd=5).pack())
@@ -265,23 +233,24 @@ class ProfileEditor(tk.Toplevel):
         self.type_var = tk.StringVar(value=data.get("type", "openai"))
 
         def _make_proto(p):
-            display_values = [PROTOCOL_NAMES[k] for k in PROTOCOL_KEYS]
+            pnames = get_protocol_names()
+            display_values = [pnames[k] for k in PROTOCOL_KEYS]
             cb = ttk.Combobox(p, values=display_values, state="readonly",
                               width=26, font=F_BODY)
             # Set current value
             cur = self.type_var.get()
-            if cur in PROTOCOL_NAMES:
-                cb.set(PROTOCOL_NAMES[cur])
+            if cur in pnames:
+                cb.set(pnames[cur])
             cb.pack()
             cb.bind("<<ComboboxSelected>>", lambda e: self._on_proto_changed(cb))
             self._proto_combo = cb
 
-        field_row(inner, "Protocole de communication",
-                  "Détermine comment l'audio est envoyé au service",
+        field_row(inner, t("config.editor.protocol"),
+                  t("config.editor.protocol_desc"),
                   _make_proto)
 
         # Protocol description
-        self.proto_desc = tk.Label(inner, text=PROTOCOL_DESCS.get(self.type_var.get(), ""),
+        self.proto_desc = tk.Label(inner, text=proto_desc(self.type_var.get()),
                                    font=F_TINY, bg=C.SURFACE, fg=C.TEXT_DIM,
                                    anchor="w", justify="left", wraplength=480)
         self.proto_desc.pack(fill="x", pady=(0, 4))
@@ -291,8 +260,8 @@ class ProfileEditor(tk.Toplevel):
         # ── URL ──────────────────────────────────────────────────────
         defaults = PROTOCOL_DEFAULTS.get(data.get("type", "openai"), {})
         self.url_var = tk.StringVar(value=data.get("url", defaults.get("url", "")))
-        field_row(inner, "URL de l'API",
-                  "Point d'entrée du service de transcription",
+        field_row(inner, t("config.editor.url"),
+                  t("config.editor.url_desc"),
                   lambda p: tk.Entry(p, textvariable=self.url_var, font=F_MONO, width=28,
                                      bg=C.INPUT, fg=C.TEXT, insertbackground=C.TEXT,
                                      relief="flat", bd=5).pack())
@@ -319,30 +288,30 @@ class ProfileEditor(tk.Toplevel):
         self.enabled_var = tk.BooleanVar(value=data.get("enabled", True))
         en_f = tk.Frame(inner, bg=C.SURFACE)
         en_f.pack(fill="x", pady=4)
-        tk.Checkbutton(en_f, text="  Profil actif", variable=self.enabled_var,
+        tk.Checkbutton(en_f, text=t("config.editor.enabled"), variable=self.enabled_var,
                        bg=C.SURFACE, fg=C.TEXT, selectcolor=C.INPUT,
                        activebackground=C.SURFACE, activeforeground=C.TEXT,
                        font=F_BODY).pack(side="left")
-        tk.Label(en_f, text="— Décocher pour désactiver sans supprimer",
+        tk.Label(en_f, text=t("config.editor.enabled_desc"),
                  font=F_TINY, bg=C.SURFACE, fg=C.TEXT_DIM).pack(side="left", padx=6)
 
         # Buttons
         bar = tk.Frame(self, bg=C.BG)
         bar.pack(fill="x", padx=20, pady=(0, 14))
-        btn(bar, "Sauvegarder", C.ACCENT, "#fff", self._save,
+        btn(bar, t("config.editor.save"), C.ACCENT, "#fff", self._save,
             font=F_H3, padx=20, pady=7).pack(side="left", padx=(0, 8))
-        btn(bar, "Annuler", C.SURFACE_ALT, C.TEXT_SEC, self.destroy,
+        btn(bar, t("config.editor.cancel"), C.SURFACE_ALT, C.TEXT_SEC, self.destroy,
             padx=20, pady=7).pack(side="left")
 
     def _on_proto_changed(self, combo):
         selected_name = combo.get()
-        for key, name in PROTOCOL_NAMES.items():
+        for key, name in get_protocol_names().items():
             if name == selected_name:
                 self.type_var.set(key)
                 break
-        t = self.type_var.get()
-        self.proto_desc.config(text=PROTOCOL_DESCS.get(t, ""))
-        defaults = PROTOCOL_DEFAULTS.get(t, {})
+        _t = self.type_var.get()
+        self.proto_desc.config(text=proto_desc(_t))
+        defaults = PROTOCOL_DEFAULTS.get(_t, {})
         all_default_urls = [d["url"] for d in PROTOCOL_DEFAULTS.values()]
         if not self.url_var.get() or self.url_var.get() in all_default_urls:
             self.url_var.set(defaults.get("url", ""))
@@ -353,7 +322,7 @@ class ProfileEditor(tk.Toplevel):
     def _save(self):
         label = self.label_var.get().strip()
         if not label:
-            messagebox.showerror("Erreur", "Le nom du profil est obligatoire.", parent=self)
+            messagebox.showerror(t("config.test.no_key"), t("config.editor.error_name"), parent=self)
             return
         name = self.original_name or slugify(label)
         self.result = {
@@ -380,7 +349,7 @@ class ConfigWindow(tk.Tk):
     def __init__(self, on_close=None):
         super().__init__()
         self.on_close_callback = on_close
-        self.title("Voice Transcriber — Paramètres")
+        self.title(t("config.title"))
         self.geometry("640x720")
         self.minsize(540, 500)
         _set_window_icon(self)
@@ -394,9 +363,9 @@ class ConfigWindow(tk.Tk):
         hdr.pack(fill="x")
         hdr_in = tk.Frame(hdr, bg=C.SURFACE)
         hdr_in.pack(fill="x", padx=20, pady=12)
-        tk.Label(hdr_in, text="Voice Transcriber", font=F_TITLE,
+        tk.Label(hdr_in, text=t("config.header"), font=F_TITLE,
                  bg=C.SURFACE, fg=C.TEXT).pack(side="left")
-        tk.Label(hdr_in, text="Paramètres", font=F_BODY,
+        tk.Label(hdr_in, text=t("config.header_sub"), font=F_BODY,
                  bg=C.SURFACE, fg=C.TEXT_DIM).pack(side="left", padx=(8, 0))
 
         # Scrollable body
@@ -421,7 +390,7 @@ class ConfigWindow(tk.Tk):
         bar.pack(fill="x", side="bottom")
         bar_in = tk.Frame(bar, bg=C.SURFACE)
         bar_in.pack(fill="x", padx=20, pady=10)
-        btn(bar_in, "Fermer", C.SURFACE_ALT, C.TEXT_SEC, self._on_close,
+        btn(bar_in, t("config.close"), C.SURFACE_ALT, C.TEXT_SEC, self._on_close,
             padx=20, pady=7).pack(side="right")
 
     # ── Settings ────────────────────────────────────────────────────────
@@ -429,18 +398,29 @@ class ConfigWindow(tk.Tk):
     def _build_settings(self):
         settings = self.data.get("settings", {})
 
-        section_title(self.body, "Paramètres généraux",
-                      "Redémarrage nécessaire après modification")
+        section_title(self.body, t("config.section.general"),
+                      t("config.section.general_desc"))
 
         card = tk.Frame(self.body, bg=C.SURFACE)
         card.pack(fill="x", padx=24, pady=(4, 0))
         inner = tk.Frame(card, bg=C.SURFACE)
         inner.pack(fill="x", padx=16, pady=14)
 
+        # Interface Language
+        self.ui_lang_var = tk.StringVar(value=settings.get("ui_language", "en"))
+        UI_LANGUAGES = [("en", "English"), ("fr", "Français")]
+        field_row(inner, t("config.field.language"),
+                  t("config.field.language_desc"),
+                  lambda p: ttk.Combobox(p, textvariable=self.ui_lang_var,
+                                         values=[k for k, _ in UI_LANGUAGES],
+                                         state="readonly", width=14, font=F_BODY).pack())
+
+        tk.Frame(inner, bg=C.BORDER, height=1).pack(fill="x", pady=4)
+
         # Hotkey
         self.hotkey_var = tk.StringVar(value=settings.get("hotkey", "ctrl+space"))
-        field_row(inner, "Raccourci clavier",
-                  "Combinaison pour démarrer / arrêter l'enregistrement",
+        field_row(inner, t("config.field.hotkey"),
+                  t("config.field.hotkey_desc"),
                   lambda p: tk.Entry(p, textvariable=self.hotkey_var, font=F_MONO, width=18,
                                      bg=C.INPUT, fg=C.TEXT, insertbackground=C.TEXT,
                                      relief="flat", bd=5).pack())
@@ -453,13 +433,13 @@ class ConfigWindow(tk.Tk):
 
         def _make_model(p):
             cb = ttk.Combobox(p, textvariable=self.model_var,
-                              values=[k for k, _ in WHISPER_MODELS],
+                              values=WHISPER_MODEL_KEYS,
                               state="readonly", width=14, font=F_BODY)
             cb.pack()
             cb.bind("<<ComboboxSelected>>", lambda e: self._update_model_desc())
 
-        field_row(inner, "Modèle Whisper local",
-                  "Moteur de transcription local (fallback si les API cloud échouent)",
+        field_row(inner, t("config.field.whisper_model"),
+                  t("config.field.whisper_model_desc"),
                   _make_model)
 
         self.model_desc_label = tk.Label(inner, text="", font=F_TINY,
@@ -472,9 +452,8 @@ class ConfigWindow(tk.Tk):
 
         # Device (CPU / CUDA)
         self.device_var = tk.StringVar(value=settings.get("whisper_device", "auto"))
-        field_row(inner, "Accélération matérielle",
-                  "Auto détecte automatiquement le GPU.\n"
-                  "CUDA utilise le GPU NVIDIA (beaucoup plus rapide).",
+        field_row(inner, t("config.field.device"),
+                  t("config.field.device_desc"),
                   lambda p: ttk.Combobox(p, textvariable=self.device_var,
                                          values=["auto", "cpu", "cuda"],
                                          state="readonly", width=14, font=F_BODY).pack())
@@ -483,9 +462,8 @@ class ConfigWindow(tk.Tk):
 
         # HuggingFace token
         self.hf_token_var = tk.StringVar(value=settings.get("hf_token", ""))
-        field_row(inner, "Token HuggingFace (optionnel)",
-                  "Augmente les quotas de téléchargement des modèles Whisper.\n"
-                  "Créez un token sur huggingface.co/settings/tokens",
+        field_row(inner, t("config.field.hf_token"),
+                  t("config.field.hf_token_desc"),
                   lambda p: tk.Entry(p, textvariable=self.hf_token_var, font=F_MONO,
                                      width=22, bg=C.INPUT, fg=C.TEXT,
                                      insertbackground=C.TEXT, relief="flat",
@@ -495,8 +473,8 @@ class ConfigWindow(tk.Tk):
 
         # Language
         self.lang_var = tk.StringVar(value=settings.get("whisper_language", "fr"))
-        field_row(inner, "Langue de transcription",
-                  "Langue principale de vos enregistrements",
+        field_row(inner, t("config.field.trans_lang"),
+                  t("config.field.trans_lang_desc"),
                   lambda p: ttk.Combobox(p, textvariable=self.lang_var,
                                          values=[k for k, _ in LANGUAGES],
                                          state="readonly", width=14, font=F_BODY).pack())
@@ -511,37 +489,33 @@ class ConfigWindow(tk.Tk):
             tk.Entry(f, textvariable=self.lifetime_var, font=F_MONO, width=5,
                      bg=C.INPUT, fg=C.TEXT, insertbackground=C.TEXT,
                      relief="flat", bd=5).pack(side="left")
-            tk.Label(f, text=" min", font=F_SMALL, bg=C.SURFACE, fg=C.TEXT_SEC).pack(side="left")
+            tk.Label(f, text=t("config.field.retention_unit"), font=F_SMALL, bg=C.SURFACE, fg=C.TEXT_SEC).pack(side="left")
 
-        field_row(inner, "Rétention des enregistrements",
-                  "Les fichiers audio plus anciens sont supprimés automatiquement",
+        field_row(inner, t("config.field.retention"),
+                  t("config.field.retention_desc"),
                   _make_lifetime)
 
         # Save
         save_row = tk.Frame(inner, bg=C.SURFACE)
         save_row.pack(fill="x", pady=(14, 2))
-        btn(save_row, "Enregistrer les paramètres", C.ACCENT, "#fff",
+        btn(save_row, t("config.btn.save_settings"), C.ACCENT, "#fff",
             self._save_settings, font=F_H3, padx=18, pady=6).pack(side="right")
 
         # Benchmark
         tk.Frame(inner, bg=C.BORDER, height=1).pack(fill="x", pady=(12, 4))
         bench_row = tk.Frame(inner, bg=C.SURFACE)
         bench_row.pack(fill="x", pady=(2, 2))
-        tk.Label(bench_row, text="Compare les performances de tous les profils API actifs",
+        tk.Label(bench_row, text=t("config.benchmark_desc"),
                  font=F_TINY, bg=C.SURFACE, fg=C.TEXT_DIM, anchor="w",
                  justify="left").pack(side="left", fill="x", expand=True)
-        btn(bench_row, "🔬 Benchmark", "#5e35b1", "#fff",
+        btn(bench_row, t("config.btn.benchmark"), "#5e35b1", "#fff",
             self._launch_benchmark, font=F_BODY, padx=14, pady=4).pack(side="right")
 
     def _update_model_desc(self):
         if not self.model_desc_label:
             return
         m = self.model_var.get()
-        for k, d in WHISPER_MODELS:
-            if k == m:
-                self.model_desc_label.config(text=d)
-                return
-        self.model_desc_label.config(text="")
+        self.model_desc_label.config(text=model_desc(m))
 
     def _save_settings(self):
         s = self.data.setdefault("settings", {})
@@ -549,6 +523,7 @@ class ConfigWindow(tk.Tk):
         s["whisper_language"] = self.lang_var.get()
         s["whisper_model"] = self.model_var.get()
         s["whisper_device"] = self.device_var.get()
+        s["ui_language"] = self.ui_lang_var.get()
         hf = self.hf_token_var.get().strip()
         if hf:
             s["hf_token"] = hf
@@ -560,9 +535,8 @@ class ConfigWindow(tk.Tk):
             s["max_wav_lifetime"] = 120
         save_config(self.data)
         if messagebox.askokcancel(
-                "Paramètres enregistrés",
-                "Les paramètres ont été sauvegardés.\n\n"
-                "L'application va redémarrer pour appliquer les modifications.",
+                t("config.msg.saved_title"),
+                t("config.msg.saved_text"),
                 parent=self):
             self._restart_app()
 
@@ -620,24 +594,16 @@ class ConfigWindow(tk.Tk):
             )[:10]
 
         if not rec_files:
-            messagebox.showwarning("Aucun enregistrement",
-                                   "Aucun fichier audio disponible pour le benchmark.\n"
-                                   "Effectuez d'abord une transcription.",
+            messagebox.showwarning(t("config.bench.no_files_title"),
+                                   t("config.bench.no_files_msg"),
                                    parent=self)
             return
 
         # Build warning message
         api_list = "\n".join(f"  • {a}" for a in active)
-        msg = (
-            f"Le benchmark va tester TOUS les profils actifs :\n\n"
-            f"{api_list}\n\n"
-            f"⚠️ Chaque profil consommera des tokens/crédits API.\n\n"
-            f"Le dernier enregistrement sera utilisé :\n"
-            f"  📁 {rec_files[0]}\n\n"
-            f"Continuer ?"
-        )
+        msg = t("config.bench.confirm_msg", profiles=api_list, file=rec_files[0])
 
-        if not messagebox.askokcancel("Lancer le benchmark", msg, parent=self):
+        if not messagebox.askokcancel(t("config.bench.confirm_title"), msg, parent=self):
             return
 
         # Launch benchmark
@@ -660,9 +626,9 @@ class ConfigWindow(tk.Tk):
         self._prof_section = tk.Frame(self.body, bg=C.BG)
         self._prof_section.pack(fill="x")
 
-        hdr = section_title(self._prof_section, "Profils API",
-                            "Services de transcription cloud")
-        btn(hdr, "Ajouter un profil", C.ACCENT, "#fff", self._add_profile,
+        hdr = section_title(self._prof_section, t("config.section.profiles"),
+                            t("config.section.profiles_desc"))
+        btn(hdr, t("config.btn.add_profile"), C.ACCENT, "#fff", self._add_profile,
             font=F_SMALL, padx=12, pady=3).pack(side="right")
 
         profiles = self.data.get("profiles", {})
@@ -672,8 +638,7 @@ class ConfigWindow(tk.Tk):
             empty = tk.Frame(self._prof_section, bg=C.SURFACE)
             empty.pack(fill="x", padx=24, pady=(6, 0))
             tk.Label(empty,
-                     text="Aucun profil configuré.\n"
-                          "Cliquez « Ajouter un profil » pour connecter un service cloud.",
+                     text=t("config.profiles_empty"),
                      font=F_BODY, bg=C.SURFACE, fg=C.TEXT_DIM, justify="center",
                      pady=24).pack()
         else:
@@ -684,8 +649,7 @@ class ConfigWindow(tk.Tk):
         info = tk.Frame(self._prof_section, bg=C.BG)
         info.pack(fill="x", padx=24, pady=(12, 20))
         tk.Label(info,
-                 text="Le moteur Whisper local est toujours disponible comme fallback, "
-                      "même sans profil API configuré.",
+                 text=t("config.profiles_fallback"),
                  font=F_TINY, bg=C.BG, fg=C.TEXT_DIM, wraplength=500,
                  anchor="w", justify="left").pack(fill="x")
 
@@ -707,17 +671,17 @@ class ConfigWindow(tk.Tk):
                  fg=C.TEXT if enabled else C.TEXT_DIM).pack(side="left")
 
         if is_default:
-            tk.Label(top, text=" PAR DÉFAUT ", font=F_TINY,
+            tk.Label(top, text=t("config.badge.default"), font=F_TINY,
                      bg=C.GREEN_BG, fg=C.GREEN, padx=6, pady=1).pack(side="left", padx=(8, 0))
         if not enabled:
-            tk.Label(top, text=" DÉSACTIVÉ ", font=F_TINY,
+            tk.Label(top, text=t("config.badge.disabled"), font=F_TINY,
                      bg=C.RED_BG, fg=C.RED, padx=6, pady=1).pack(side="left", padx=(8, 0))
 
         # Protocol + model
         proto = pdata.get("type", "?")
-        proto_name = PROTOCOL_NAMES.get(proto, proto)
+        pname = proto_name(proto)
         model = pdata.get("model", "")
-        detail = f"{proto_name}  ·  Modèle : {model}" if model else proto_name
+        detail = f"{pname}  ·  Model: {model}" if model else pname
         tk.Label(inner, text=detail, font=F_SMALL, bg=bg,
                  fg=C.TEXT_DIM, anchor="w").pack(fill="x", pady=(2, 0))
 
@@ -728,7 +692,7 @@ class ConfigWindow(tk.Tk):
                 masked = key[:6] + "●" * min(8, len(key) - 10) + key[-4:]
             else:
                 masked = "●" * len(key)
-            tk.Label(inner, text=f"Clé : {masked}", font=F_TINY, bg=bg,
+            tk.Label(inner, text=f"Key: {masked}", font=F_TINY, bg=bg,
                      fg=C.TEXT_DIM, anchor="w").pack(fill="x")
 
         # Action buttons — clear text, no ambiguous icons
@@ -736,24 +700,24 @@ class ConfigWindow(tk.Tk):
         btns.pack(fill="x", pady=(8, 0))
         _b = dict(font=F_SMALL, padx=10, pady=3)
 
-        btn(btns, "Tester", C.GREEN_BG, C.GREEN,
+        btn(btns, t("config.btn.test"), C.GREEN_BG, C.GREEN,
             lambda n=name, d=pdata: self._test_profile(n, d), **_b).pack(side="left", padx=(0, 4))
 
-        btn(btns, "Modifier", C.ACCENT, "#fff",
+        btn(btns, t("config.btn.edit"), C.ACCENT, "#fff",
             lambda n=name, d=pdata: self._edit_profile(n, d), **_b).pack(side="left", padx=(0, 4))
 
         if enabled:
-            btn(btns, "Désactiver", C.SURFACE_ALT, C.ORANGE,
+            btn(btns, t("config.btn.disable"), C.SURFACE_ALT, C.ORANGE,
                 lambda n=name: self._toggle(n), **_b).pack(side="left", padx=(0, 4))
         else:
-            btn(btns, "Activer", C.GREEN_BG, C.GREEN,
+            btn(btns, t("config.btn.enable"), C.GREEN_BG, C.GREEN,
                 lambda n=name: self._toggle(n), **_b).pack(side="left", padx=(0, 4))
 
         if not is_default and enabled:
-            btn(btns, "Par défaut", C.SURFACE_ALT, C.TEXT_SEC,
+            btn(btns, t("config.btn.default"), C.SURFACE_ALT, C.TEXT_SEC,
                 lambda n=name: self._set_default(n), **_b).pack(side="left", padx=(0, 4))
 
-        btn(btns, "Supprimer", C.RED_BG, C.RED,
+        btn(btns, t("config.btn.delete"), C.RED_BG, C.RED,
             lambda n=name: self._delete(n), **_b).pack(side="right")
 
     # ── Actions ─────────────────────────────────────────────────────────
@@ -786,8 +750,8 @@ class ConfigWindow(tk.Tk):
 
     def _delete(self, name):
         label = self.data["profiles"][name].get("label", name)
-        if messagebox.askyesno("Confirmer la suppression",
-                               f"Supprimer « {label} » ?\nCette action est irréversible.",
+        if messagebox.askyesno(t("config.delete.title"),
+                               t("config.delete.msg", label=label),
                                parent=self):
             del self.data["profiles"][name]
             if self.data.get("default") == name:
@@ -799,10 +763,10 @@ class ConfigWindow(tk.Tk):
     def _test_profile(self, name, pdata):
         label = pdata.get("label", name)
         if not pdata.get("key"):
-            messagebox.showwarning("Test impossible",
-                                   f"« {label} » n'a pas de clé API.", parent=self)
+            messagebox.showwarning(t("config.test.no_key"),
+                                   t("config.test.no_key_msg", label=label), parent=self)
             return
-        self.title(f"Test en cours — {label}…")
+        self.title(t("config.test.running", label=label))
         self.update()
 
         def _run():
@@ -816,7 +780,7 @@ class ConfigWindow(tk.Tk):
                                                "content-type": "application/octet-stream"},
                                       timeout=10)
                     r.raise_for_status()
-                    msg = "Connexion réussie.\nEndpoint upload OK."
+                    msg = t("config.test.assemblyai_ok")
 
                 elif api_type == "openai":
                     url = pdata.get("url") or PROTOCOL_DEFAULTS["openai"]["url"]
@@ -824,7 +788,7 @@ class ConfigWindow(tk.Tk):
                                      headers={"Authorization": f"Bearer {pdata['key']}"},
                                      timeout=10)
                     r.raise_for_status()
-                    msg = "Connexion réussie.\nClé API valide."
+                    msg = t("config.test.openai_ok")
 
                 elif api_type in ("gemini", "google"):
                     url = pdata.get("url") or PROTOCOL_DEFAULTS["gemini"]["url"]
@@ -833,7 +797,7 @@ class ConfigWindow(tk.Tk):
                         f"{url}/v1beta/models/{model}:generateContent?key={pdata['key']}",
                         json={"contents": [{"parts": [{"text": "OK"}]}]}, timeout=10)
                     r.raise_for_status()
-                    msg = f"Connexion réussie.\nModèle {model} accessible."
+                    msg = t("config.test.gemini_ok", model=model)
 
                 elif api_type == "revai":
                     url = pdata.get("url") or PROTOCOL_DEFAULTS["revai"]["url"]
@@ -844,7 +808,7 @@ class ConfigWindow(tk.Tk):
                     bal = r.json().get("balance_seconds", "?")
                     if isinstance(bal, (int, float)):
                         bal = f"{bal / 60:.0f} minutes"
-                    msg = f"Connexion réussie.\nCrédit : {bal}"
+                    msg = t("config.test.revai_ok", balance=bal)
 
                 elif api_type == "gemini_live":
                     import asyncio
@@ -867,24 +831,24 @@ class ConfigWindow(tk.Tk):
                         loop.run_until_complete(_test_ws())
                     finally:
                         loop.close()
-                    msg = f"Connexion WebSocket réussie.\nModèle {model} accessible."
+                    msg = t("config.test.gemini_live_ok", model=model)
 
                 else:
-                    msg = f"Protocole « {api_type} » — test non disponible."
+                    msg = t("config.test.unknown_proto", proto=api_type)
 
-                result = ("ok", f"Test réussi — {label}", msg)
+                result = ("ok", t("config.test.ok_title", label=label), msg)
             except Exception as e:
                 err = str(e)[:300]
                 if hasattr(e, "response") and e.response is not None:
                     err = f"HTTP {e.response.status_code}\n{err}"
-                result = ("err", f"Échec — {label}", f"Erreur :\n{err}")
+                result = ("err", t("config.test.fail_title", label=label), t("config.test.error_prefix", err=err))
 
             self.after(0, lambda: self._show_result(*result))
 
         threading.Thread(target=_run, daemon=True).start()
 
     def _show_result(self, level, title, msg):
-        self.title("Voice Transcriber — Paramètres")
+        self.title(t("config.title"))
         (messagebox.showinfo if level == "ok" else messagebox.showerror)(title, msg, parent=self)
 
     def _on_close(self):

@@ -9,6 +9,7 @@ Usage:
 import os
 import sys
 import winreg
+from locales import t
 
 APP_NAME = "VoiceTranscriber"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -42,9 +43,9 @@ def install():
     winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, command)
     winreg.CloseKey(key)
 
-    print(f"✅ {APP_NAME} ajouté au démarrage Windows.")
-    print(f"   Commande : {command}")
-    print(f"   Logs : {os.path.join(SCRIPT_DIR, 'voice_transcriber.log')}")
+    print(t("setup.installed", app=APP_NAME))
+    print(t("setup.command", cmd=command))
+    print(t("setup.logs", path=os.path.join(SCRIPT_DIR, 'voice_transcriber.log')))
 
 
 def uninstall():
@@ -56,16 +57,16 @@ def uninstall():
         )
         winreg.DeleteValue(key, APP_NAME)
         winreg.CloseKey(key)
-        print(f"✅ {APP_NAME} retiré du démarrage Windows.")
+        print(t("setup.uninstalled", app=APP_NAME))
     except FileNotFoundError:
-        print(f"ℹ️  {APP_NAME} n'était pas dans le démarrage.")
+        print(t("setup.not_found", app=APP_NAME))
 
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ("install", "uninstall"):
-        print("Usage :")
-        print("  python setup_startup.py install     → Ajouter au démarrage")
-        print("  python setup_startup.py uninstall   → Retirer du démarrage")
+        print(t("setup.usage"))
+        print(t("setup.usage_install"))
+        print(t("setup.usage_uninstall"))
         sys.exit(1)
 
     if sys.argv[1] == "install":

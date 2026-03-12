@@ -27,6 +27,7 @@ import pyperclip
 import keyboard
 import pystray
 from PIL import Image, ImageDraw, ImageFont
+from locales import t, set_language
 
 # ─── Logging (file-based, no console needed) ─────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -53,7 +54,7 @@ try:
     PYCAW_AVAILABLE = True
 except ImportError:
     PYCAW_AVAILABLE = False
-    log.warning("pycaw non disponible — le ducking audio est désactivé.")
+    log.warning("pycaw not available — audio ducking disabled.")
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 PROFILES_FILE = os.path.join(SCRIPT_DIR, "profiles.json")
@@ -93,6 +94,9 @@ WHISPER_MODEL_SIZE = _settings.get("whisper_model", "medium")
 WHISPER_DEVICE = _settings.get("whisper_device", "auto")
 WHISPER_LANGUAGE = _settings.get("whisper_language", "fr")
 HOTKEY = _settings.get("hotkey", "ctrl+space")
+
+# UI language
+set_language(_settings.get("ui_language", "en"))
 
 # HuggingFace token for faster-whisper model downloads
 _hf_token = _settings.get("hf_token", "")
@@ -136,10 +140,11 @@ def _reload_profiles():
     WHISPER_LANGUAGE = _s.get("whisper_language", "fr")
     HOTKEY = _s.get("hotkey", "ctrl+space")
     MAX_WAV_LIFETIME = _s.get("max_wav_lifetime", 120)
+    set_language(_s.get("ui_language", "en"))
     hf = _s.get("hf_token", "")
     if hf:
         os.environ["HF_TOKEN"] = hf
-    log.info("Profils rechargés : %s", ", ".join(p.get("label", n) for n, p in api_profiles.items()))
+    log.info("Profiles reloaded: %s", ", ".join(p.get("label", n) for n, p in api_profiles.items()))
 
 # ─── Globals ─────────────────────────────────────────────────────────────────
 recording = False
@@ -190,7 +195,7 @@ def _load_usage() -> dict:
         with open(USAGE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         if data.get("date") != today:
-            log.info("Nouveau jour (%s) — remise à zéro des stats d'utilisation", today)
+            log.info("New day (%s) — resetting usage stats", today)
             return {"date": today, "profiles": {}}
         return data
     except (FileNotFoundError, json.JSONDecodeError):
@@ -202,7 +207,7 @@ def _save_usage(data: dict):
         with open(USAGE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
-        log.warning("Impossible de sauvegarder usage.json : %s", e)
+        log.warning("Failed to save usage.json: %s", e)
 
 def _record_usage(profile_name: str, audio_seconds: float):
     """Record one transcription usage for a profile."""
@@ -389,7 +394,7 @@ class OverlayApp:
         self._stop_anim()
         self._clear_anim_items()
         self._state = "recording"
-        self.canvas.itemconfig(self.label, text="Enregistrement…", fill=self.TEXT_COLOR)
+        self.canvas.itemconfig(self.label, text=t("overlay.recording"), fill=self.TEXT_COLOR)
         self.canvas.itemconfig(self.esc_hint, state="normal")
         self.canvas.itemconfig(self.close_btn, state="normal")
         self.root.deiconify()
@@ -408,9 +413,10 @@ class OverlayApp:
             self._anim_tick = 0
             self._animate_spinner()
         if word_count > 0:
-            txt = f"Transcription… {word_count} mot{'s' if word_count > 1 else ''}"
+            s = "s" if word_count > 1 else ""
+            txt = t("overlay.transcribing_words", count=word_count, s=s)
         else:
-            txt = "Transcription…"
+            txt = t("overlay.transcribing")
         self.canvas.itemconfig(self.label, text=txt, fill=self.TEXT_COLOR)
 
     def show_cancelled(self):
@@ -420,7 +426,7 @@ class OverlayApp:
         self._stop_anim()
         self._clear_anim_items()
         self._state = "done"
-        self.canvas.itemconfig(self.label, text="Annulé", fill=self.CANCEL_COLOR)
+        self.canvas.itemconfig(self.label, text=t("overlay.cancelled"), fill=self.CANCEL_COLOR)
         self.canvas.itemconfig(self.esc_hint, state="hidden")
         self.canvas.itemconfig(self.close_btn, state="hidden")
         cx, cy = self.ICON_CX, self.ICON_CY
@@ -440,7 +446,7 @@ class OverlayApp:
         self._stop_anim()
         self._clear_anim_items()
         self._state = "done"
-        self.canvas.itemconfig(self.label, text="✓ Terminé", fill=self.OK_COLOR)
+        self.canvas.itemconfig(self.label, text=t("overlay.done"), fill=self.OK_COLOR)
         self.canvas.itemconfig(self.esc_hint, state="hidden")
         self.canvas.itemconfig(self.close_btn, state="hidden")
         cx, cy = self.ICON_CX, self.ICON_CY
@@ -457,7 +463,7 @@ class OverlayApp:
         self._stop_anim()
         self._clear_anim_items()
         self._state = "error"
-        self.canvas.itemconfig(self.label, text="✗ Erreur", fill=self.ERR_COLOR)
+        self.canvas.itemconfig(self.label, text=t("overlay.error"), fill=self.ERR_COLOR)
         cx, cy = self.ICON_CX, self.ICON_CY
         item = self.canvas.create_oval(cx - 5, cy - 5, cx + 5, cy + 5,
                                        fill=self.ERR_COLOR, outline=self.ERR_COLOR)
@@ -571,7 +577,7 @@ class OverlayApp:
         self._stop_anim()
         self._clear_anim_items()
         self._state = "transcribing"
-        txt = f"Téléchargement du modèle {model_name}…" if model_name else "Téléchargement du modèle…"
+        txt = t("overlay.downloading", name=model_name) if model_name else t("overlay.downloading_generic")
         self.canvas.itemconfig(self.label, text=txt, fill=self.TRANS_COLOR)
         self.canvas.itemconfig(self.esc_hint, state="hidden")
         self.canvas.itemconfig(self.close_btn, state="hidden")
@@ -614,14 +620,14 @@ def _duck_other_apps():
     saved_volumes = {}
 
     if not PYCAW_AVAILABLE or not DUCKING_ENABLED:
-        log.info("Ducking ignoré (disponible=%s, activé=%s)", PYCAW_AVAILABLE, DUCKING_ENABLED)
+        log.info("Ducking skipped (available=%s, enabled=%s)", PYCAW_AVAILABLE, DUCKING_ENABLED)
         return
 
     import comtypes
     comtypes.CoInitialize()
     try:
         sessions = _get_audio_sessions()
-        log.info("Ducking : %d sessions audio trouvées", len(sessions))
+        log.info("Ducking: %d audio sessions found", len(sessions))
 
         # Collect sessions that have volume > 0
         targets = []  # [(vol_interface, current_volume, target_volume, pid, name)]
@@ -654,7 +660,7 @@ def _duck_other_apps():
             log.info("Ducking %s (PID %d) : %.0f%% → %.0f%%",
                      name, pid, current * 100, target * 100)
     except Exception as e:
-        log.warning("Erreur lors du ducking audio : %s", e)
+        log.warning("Audio ducking error: %s", e)
     finally:
         comtypes.CoUninitialize()
 
@@ -700,7 +706,7 @@ def _restore_other_apps():
         for vol, current, original, pid, name in targets:
             log.info("Restored %s (PID %d) → %.0f%%", name, pid, original * 100)
     except Exception as e:
-        log.warning("Erreur lors de la restauration audio : %s", e)
+        log.warning("Audio restore error: %s", e)
     finally:
         saved_volumes = {}
         comtypes.CoUninitialize()
@@ -735,7 +741,7 @@ def start_recording():
 
     if overlay_app:
         overlay_app.show_recording()
-    log.info("Enregistrement en cours…")
+    log.info("Recording…")
 
 
 def stop_recording() -> bytes:
@@ -743,7 +749,7 @@ def stop_recording() -> bytes:
     global recording, sd_stream, last_recording_path
 
     recording = False
-    log.info("Enregistrement arrêté.")
+    log.info("Recording stopped.")
 
     # Restore other audio sources
     _restore_other_apps()
@@ -774,7 +780,7 @@ def stop_recording() -> bytes:
     with open(filepath, "wb") as f:
         f.write(wav_bytes)
     last_recording_path = filepath
-    log.info("Enregistrement sauvegardé : %s", filepath)
+    log.info("Recording saved: %s", filepath)
 
     return wav_bytes
 
@@ -788,7 +794,7 @@ def _get_whisper_model():
     global whisper_model
     if whisper_model is None:
         from faster_whisper import WhisperModel
-        log.info("Chargement du modèle faster-whisper '%s' (device=%s)…",
+        log.info("Loading faster-whisper model '%s' (device=%s)…",
                  WHISPER_MODEL_SIZE, WHISPER_DEVICE)
         device = WHISPER_DEVICE
         if device == "auto":
@@ -808,13 +814,13 @@ def _get_whisper_model():
                                          local_files_only=True)
         except Exception:
             # Model not cached yet — show download indicator and download
-            log.info("Modèle non trouvé en cache, téléchargement…")
+            log.info("Model not cached, downloading…")
             if overlay_app:
                 overlay_app.show_downloading(WHISPER_MODEL_SIZE)
             whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device=device,
                                          compute_type=compute_type)
 
-        log.info("Modèle faster-whisper chargé (device=%s, compute=%s)",
+        log.info("faster-whisper model loaded (device=%s, compute=%s)",
                  device, compute_type)
     return whisper_model
 
@@ -845,10 +851,10 @@ def _has_ffmpeg() -> bool:
             subprocess.run(["ffmpeg", "-version"], capture_output=True,
                            timeout=5, creationflags=_NO_WINDOW)
             _ffmpeg_available = True
-            log.info("ffmpeg détecté — compression audio activée")
+            log.info("ffmpeg detected — audio compression enabled")
         except (FileNotFoundError, Exception):
             _ffmpeg_available = False
-            log.info("ffmpeg non trouvé — upload WAV non compressé")
+            log.info("ffmpeg not found — uncompressed WAV upload")
     return _ffmpeg_available
 
 
@@ -866,11 +872,11 @@ def _compress_audio(wav_bytes: bytes) -> bytes:
         )
         if result.returncode == 0 and result.stdout:
             ratio = len(result.stdout) / len(wav_bytes) * 100
-            log.info("Audio compressé : %d → %d bytes (%.0f%%)",
+            log.info("Audio compressed: %d → %d bytes (%.0f%%)",
                      len(wav_bytes), len(result.stdout), ratio)
             return result.stdout
     except Exception as e:
-        log.warning("Compression échouée : %s", e)
+        log.warning("Compression failed: %s", e)
     return wav_bytes
 
 
@@ -884,9 +890,9 @@ def _transcribe_with_api(profile: dict, audio_wav: bytes) -> str:
     label = profile.get("label", "API")
 
     if not profile.get("key"):
-        raise RuntimeError(f"Clé API manquante pour '{label}'")
+        raise RuntimeError(f"API key missing for '{label}'")
 
-    log.info("%s : transcription en cours (type=%s)…", label, api_type)
+    log.info("%s: transcribing (type=%s)…", label, api_type)
 
     if api_type == "openai":
         return _transcribe_openai(profile, audio_wav)
@@ -910,7 +916,7 @@ def _transcribe_assemblyai(profile: dict, audio_wav: bytes) -> str:
     upload_data = _compress_audio(audio_wav)
 
     # Upload
-    log.info("%s : upload (%d bytes)…", label, len(upload_data))
+    log.info("%s: uploading (%d bytes)…", label, len(upload_data))
     upload_resp = req.post(f"{api_url}/v2/upload", headers=headers, data=upload_data, timeout=30)
     upload_resp.raise_for_status()
     audio_url = upload_resp.json()["upload_url"]
@@ -922,20 +928,20 @@ def _transcribe_assemblyai(profile: dict, audio_wav: bytes) -> str:
     resp = req.post(f"{api_url}/v2/transcript", headers=headers, json=data, timeout=15)
     resp.raise_for_status()
     transcript_id = resp.json()["id"]
-    log.info("%s : créé (id=%s, model=%s)", label, transcript_id, model or "default")
+    log.info("%s: created (id=%s, model=%s)", label, transcript_id, model or "default")
 
     # Poll
     poll_url = f"{api_url}/v2/transcript/{transcript_id}"
     while True:
         if cancel_event.is_set():
-            raise RuntimeError("Annulé par l'utilisateur")
+            raise RuntimeError("Cancelled by user")
         result = req.get(poll_url, headers=headers, timeout=10).json()
         if result["status"] == "completed":
             text = result.get("text", "").strip()
-            log.info("%s terminé : %s", label, text[:200])
+            log.info("%s done: %s", label, text[:200])
             return text
         elif result["status"] == "error":
-            raise RuntimeError(f"{label} erreur : {result.get('error', 'unknown')}")
+            raise RuntimeError(f"{label} error: {result.get('error', 'unknown')}")
         time.sleep(0.5)
 
 
@@ -957,7 +963,7 @@ def _transcribe_openai(profile: dict, audio_wav: bytes) -> str:
     files = {"file": (f"audio.{ext}", upload_data, f"audio/{ext}")}
     data = {"model": model}
 
-    log.info("%s : envoi (%d bytes, model=%s)…", label, len(upload_data), model)
+    log.info("%s: sending (%d bytes, model=%s)…", label, len(upload_data), model)
     resp = req.post(
         f"{api_url}/v1/audio/transcriptions",
         headers=headers,
@@ -967,7 +973,7 @@ def _transcribe_openai(profile: dict, audio_wav: bytes) -> str:
     )
     resp.raise_for_status()
     text = resp.json().get("text", "").strip()
-    log.info("%s terminé : %s", label, text[:200])
+    log.info("%s done: %s", label, text[:200])
     return text
 
 
@@ -1020,10 +1026,10 @@ def _transcribe_google(profile: dict, audio_wav: bytes) -> str:
     result = resp.json()
     candidates = result.get("candidates", [])
     if not candidates:
-        raise RuntimeError(f"{label} : aucun candidat dans la réponse")
+        raise RuntimeError(f"{label}: no candidates in response")
 
     text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
-    log.info("%s terminé : %s", label, text[:200])
+    log.info("%s done: %s", label, text[:200])
     return text
 
 
@@ -1049,7 +1055,7 @@ def _transcribe_gemini_live(profile: dict, audio_wav: bytes) -> str:
 
     # Convert WAV to raw PCM 16-bit 16kHz mono
     pcm_data = _wav_to_pcm16k(audio_wav)
-    log.info("%s : envoi via WebSocket (%d bytes PCM, model=%s)…",
+    log.info("%s: sending via WebSocket (%d bytes PCM, model=%s)…",
              label, len(pcm_data), model)
 
     async def _stream():
@@ -1111,7 +1117,7 @@ def _transcribe_gemini_live(profile: dict, audio_wav: bytes) -> str:
                 deadline = asyncio.get_event_loop().time() + 30
                 async for raw in ws:
                     if asyncio.get_event_loop().time() > deadline:
-                        log.warning("%s : timeout en attente de réponse", label)
+                        log.warning("%s: timeout waiting for response", label)
                         break
                     resp = json.loads(raw)
                     sc = resp.get("serverContent", {})
@@ -1130,7 +1136,7 @@ def _transcribe_gemini_live(profile: dict, audio_wav: bytes) -> str:
                     if sc.get("turnComplete"):
                         break
             except websockets.exceptions.ConnectionClosed as e:
-                log.warning("Gemini Live : connexion fermée (%s)", e)
+                log.warning("Gemini Live: connection closed (%s)", e)
 
             return full_text.strip()
 
@@ -1142,9 +1148,9 @@ def _transcribe_gemini_live(profile: dict, audio_wav: bytes) -> str:
         loop.close()
 
     if not text:
-        raise RuntimeError(f"{label} : aucune transcription reçue")
+        raise RuntimeError(f"{label}: no transcription received")
 
-    log.info("%s terminé : %s", label, text[:200])
+    log.info("%s done: %s", label, text[:200])
     return text
 
 
@@ -1198,7 +1204,7 @@ def _transcribe_revai(profile: dict, audio_wav: bytes) -> str:
     mime = f"audio/{ext}"
 
     # Step 1: Submit job (multipart upload)
-    log.info("%s : upload (%d bytes)…", label, len(upload_data))
+    log.info("%s: uploading (%d bytes)…", label, len(upload_data))
     files = {"media": (f"audio.{ext}", upload_data, mime)}
     options = json.dumps({"language": WHISPER_LANGUAGE or "fr"})
 
@@ -1211,19 +1217,19 @@ def _transcribe_revai(profile: dict, audio_wav: bytes) -> str:
     )
     resp.raise_for_status()
     job_id = resp.json()["id"]
-    log.info("%s : job créé (id=%s)", label, job_id)
+    log.info("%s: job created (id=%s)", label, job_id)
 
     # Step 2: Poll until transcribed
     poll_url = f"{api_url}/jobs/{job_id}"
     while True:
         if cancel_event.is_set():
-            raise RuntimeError("Annulé par l'utilisateur")
+            raise RuntimeError("Cancelled by user")
         result = req.get(poll_url, headers=headers, timeout=10).json()
         status = result["status"]
         if status == "transcribed":
             break
         elif status == "failed":
-            raise RuntimeError(f"{label} erreur : {result.get('failure_detail', 'unknown')}")
+            raise RuntimeError(f"{label} error: {result.get('failure_detail', 'unknown')}")
         time.sleep(0.5)
 
     # Step 3: Get transcript as plain text
@@ -1235,8 +1241,8 @@ def _transcribe_revai(profile: dict, audio_wav: bytes) -> str:
     transcript_resp.raise_for_status()
     text = transcript_resp.text.strip()
     if not text:
-        raise RuntimeError(f"{label} : transcription vide retournée")
-    log.info("%s terminé : %s", label, text[:200])
+        raise RuntimeError(f"{label}: empty transcription returned")
+    log.info("%s done: %s", label, text[:200])
     return text
 
 def transcribe(audio_wav: bytes, on_progress=None) -> str:
@@ -1248,20 +1254,20 @@ def transcribe(audio_wav: bytes, on_progress=None) -> str:
     # ── Cloud API mode ───────────────────────────────────────────────
     if is_cloud:
         try:
-            log.info("Profil actif : %s", profile.get('label', active_api_profile))
+            log.info("Active profile: %s", profile.get('label', active_api_profile))
             text = _transcribe_with_api(profile, audio_wav)
             _record_usage(active_api_profile, audio_seconds)
             return text
         except Exception as e:
             if cancel_event.is_set():
-                log.info("Transcription annulée, pas de fallback")
+                log.info("Transcription cancelled, no fallback")
                 return ""
-            log.warning("API échoué (%s) — fallback whisper local", str(e)[:120])
+            log.warning("API failed (%s) — local whisper fallback", str(e)[:120])
 
     # ── Local mode: faster-whisper + quick cleanup ────────────────────
     # Check cancellation before starting heavy whisper work
     if cancel_event.is_set():
-        log.info("Transcription annulée, pas de fallback")
+        log.info("Transcription cancelled, no fallback")
         return ""
 
     import tempfile
@@ -1275,19 +1281,19 @@ def transcribe(audio_wav: bytes, on_progress=None) -> str:
 
         # Check cancellation after model loading (can take several seconds)
         if cancel_event.is_set():
-            log.info("Transcription annulée après chargement du modèle")
+            log.info("Transcription cancelled after model loading")
             return ""
 
         segments, info = model.transcribe(tmp_path, language=WHISPER_LANGUAGE,
                                            beam_size=5)
-        log.info("Langue détectée : %s (proba=%.2f)", info.language,
+        log.info("Detected language: %s (prob=%.2f)", info.language,
                  info.language_probability)
 
         full_text = ""
         for segment in segments:
             # Check cancellation between segments
             if cancel_event.is_set():
-                log.info("Transcription annulée pendant le traitement")
+                log.info("Transcription cancelled during processing")
                 return ""
             full_text += segment.text
             if on_progress:
@@ -1295,7 +1301,7 @@ def transcribe(audio_wav: bytes, on_progress=None) -> str:
                 on_progress(word_count)
 
         raw_text = full_text.strip()
-        log.info("Transcription brute : %s", raw_text)
+        log.info("Raw transcription: %s", raw_text)
         _record_usage("local", audio_seconds)
         return _quick_cleanup(raw_text)
 
@@ -1364,7 +1370,7 @@ def transcribe_with_retry(wav_data: bytes, paste: bool = True):
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         if cancel_event.is_set():
-            log.info("Transcription annulée par l'utilisateur")
+            log.info("Transcription cancelled by user")
             if overlay_app:
                 overlay_app.hide()
             return None
@@ -1373,7 +1379,7 @@ def transcribe_with_retry(wav_data: bytes, paste: bool = True):
                 overlay_app.show_transcribing()
             text = transcribe(wav_data, on_progress=_on_progress)
             if text:
-                log.info("Transcription (tentative %d) : %s", attempt, text)
+                log.info("Transcription (attempt %d): %s", attempt, text)
                 _save_transcription_result(text)
                 if paste:
                     paste_text(text)
@@ -1382,22 +1388,22 @@ def transcribe_with_retry(wav_data: bytes, paste: bool = True):
                 _purge_old_recordings()
                 return text
             else:
-                last_error = "Aucune transcription retournée"
-                log.warning("%s (tentative %d/%d)", last_error, attempt, MAX_RETRIES)
+                last_error = "No transcription returned"
+                log.warning("%s (attempt %d/%d)", last_error, attempt, MAX_RETRIES)
         except Exception as e:
             last_error = str(e)
-            log.error("Erreur API (tentative %d/%d) : %s", attempt, MAX_RETRIES, last_error)
+            log.error("API error (attempt %d/%d): %s", attempt, MAX_RETRIES, last_error)
 
         # Wait before retry (except on last attempt)
         if attempt < MAX_RETRIES:
-            log.info("Nouvelle tentative dans %ds…", RETRY_DELAY)
+            log.info("Retrying in %ds…", RETRY_DELAY)
             time.sleep(RETRY_DELAY)
 
     # All retries exhausted
-    log.error("Échec après %d tentatives : %s", MAX_RETRIES, last_error)
-    _save_transcription_result(f"❌ {last_error}" if last_error else "❌ Échec")
+    log.error("Failed after %d attempts: %s", MAX_RETRIES, last_error)
+    _save_transcription_result(f"❌ {last_error}" if last_error else "❌ Failed")
     if overlay_app:
-        overlay_app.show_error(last_error or "Échec de transcription")
+        overlay_app.show_error(last_error or "Transcription failed")
     return None
 
 
@@ -1430,7 +1436,7 @@ def on_cancel():
     # If currently recording, stop everything immediately
     if recording:
         recording = False
-        log.info("Annulation de l'enregistrement (Escape)")
+        log.info("Recording cancelled (Escape)")
 
         # Stop microphone
         if sd_stream:
@@ -1448,7 +1454,7 @@ def on_cancel():
     if overlay_app:
         overlay_app.show_cancelled()
 
-    log.info("Opération annulée par l'utilisateur")
+    log.info("Operation cancelled by user")
 
 
 def on_toggle():
@@ -1464,14 +1470,14 @@ def on_toggle():
             wav_data = stop_recording()
 
             if cancel_event.is_set():
-                log.info("Transcription annulée (Escape)")
+                log.info("Transcription cancelled (Escape)")
                 if overlay_app:
                     overlay_app.hide()
                 return
 
             duration = len(wav_data) / (SAMPLE_RATE * 2 * CHANNELS) if wav_data else 0
             if duration < 0.5:
-                log.warning("Enregistrement trop court, ignoré.")
+                log.warning("Recording too short, ignored.")
                 if overlay_app:
                     overlay_app.hide()
                 return
@@ -1516,7 +1522,7 @@ def _create_tray_icon_image() -> Image.Image:
 
 
 def _quit_from_tray(icon: pystray.Icon, item):
-    log.info("Quit demandé depuis le tray.")
+    log.info("Quit requested from tray.")
     shutdown_event.set()
     icon.stop()
 
@@ -1524,10 +1530,10 @@ def _quit_from_tray(icon: pystray.Icon, item):
 def _retranscribe_file(filepath: str):
     """Retranscribe a specific WAV file (or benchmark it)."""
     if not os.path.isfile(filepath):
-        log.warning("Fichier introuvable : %s", filepath)
+        log.warning("File not found: %s", filepath)
         return
 
-    log.info("Retranscription de %s", filepath)
+    log.info("Re-transcribing %s", filepath)
     with open(filepath, "rb") as f:
         wav_data = f.read()
 
@@ -1553,20 +1559,20 @@ def _run_tray():
         def _toggle_enter(icon, item):
             global auto_enter
             auto_enter = not auto_enter
-            log.info("Enter auto : %s", "activé" if auto_enter else "désactivé")
+            log.info("Auto enter: %s", "enabled" if auto_enter else "disabled")
 
         def _switch_profile(name):
             def handler(icon, item):
                 global active_api_profile
                 active_api_profile = name
                 p = api_profiles[name]
-                log.info("Profil API changé : %s", p.get("label", name))
+                log.info("API profile changed: %s", p.get("label", name))
             return handler
 
         def _toggle_from_tray(icon, item):
             on_toggle()
 
-        recording_label = "⏹ Arrêter" if recording else "🎤 Enregistrer"
+        recording_label = t("tray.stop") if recording else t("tray.record")
         items = [
             pystray.MenuItem(recording_label, _toggle_from_tray, default=True),
             pystray.Menu.SEPARATOR,
@@ -1583,7 +1589,7 @@ def _run_tray():
             ))
 
         items.append(pystray.Menu.SEPARATOR)
-        items.append(pystray.MenuItem("⏎ Enter auto", _toggle_enter, checked=lambda item: auto_enter))
+        items.append(pystray.MenuItem(t("tray.auto_enter"), _toggle_enter, checked=lambda item: auto_enter))
 
         def _is_autostart_enabled():
             try:
@@ -1611,14 +1617,14 @@ def _run_tray():
             if _is_autostart_enabled():
                 subprocess.run([python_exe, startup_script, "uninstall"],
                                creationflags=_NO_WINDOW)
-                log.info("Démarrage automatique : désactivé")
+                log.info("Auto-start: disabled")
             else:
                 subprocess.run([python_exe, startup_script, "install"],
                                creationflags=_NO_WINDOW)
-                log.info("Démarrage automatique : activé")
+                log.info("Auto-start: enabled")
 
         items.append(pystray.MenuItem(
-            "🚀 Démarrage auto Windows", _toggle_autostart,
+            t("tray.autostart"), _toggle_autostart,
             checked=lambda item: _is_autostart_enabled()))
         items.append(pystray.Menu.SEPARATOR)
 
@@ -1637,7 +1643,7 @@ def _run_tray():
                 return handler
 
             show_date = MAX_WAV_LIFETIME > 1440  # > 24h
-            combined_items.append(pystray.MenuItem("── Retranscrire ──", None, enabled=False))
+            combined_items.append(pystray.MenuItem(t("tray.retranscribe_header"), None, enabled=False))
             for fname in rec_files:
                 fpath = os.path.join(RECORDINGS_DIR, fname)
                 try:
@@ -1668,24 +1674,24 @@ def _run_tray():
             def _copy_item(idx):
                 def handler(icon, item):
                     pyperclip.copy(clipboard_history[idx])
-                    log.info("Copié depuis l'historique : %s", clipboard_history[idx][:60])
+                    log.info("Copied from history: %s", clipboard_history[idx][:60])
                 return handler
 
             combined_items.append(pystray.Menu.SEPARATOR)
-            combined_items.append(pystray.MenuItem("── Copier ──", None, enabled=False))
+            combined_items.append(pystray.MenuItem(t("tray.copy_header"), None, enabled=False))
             for i, entry in enumerate(clipboard_history[:8]):
                 label = entry[:40] + "…" if len(entry) > 40 else entry
                 combined_items.append(pystray.MenuItem(label, _copy_item(i)))
 
         if combined_items:
             items.append(pystray.MenuItem(
-                "📋 Enregistrements",
+                t("tray.recordings"),
                 pystray.Menu(*combined_items),
             ))
         else:
-            items.append(pystray.MenuItem("📋 Enregistrements (aucun)", None, enabled=False))
+            items.append(pystray.MenuItem(t("tray.recordings_none"), None, enabled=False))
 
-        items.append(pystray.MenuItem("📂 Ouvrir le dossier", _open_recordings_folder))
+        items.append(pystray.MenuItem(t("tray.open_folder"), _open_recordings_folder))
 
         items.append(pystray.Menu.SEPARATOR)
 
@@ -1695,11 +1701,11 @@ def _run_tray():
             if os.path.isfile(readme_path):
                 os.startfile(readme_path)
             else:
-                log.warning("README.md introuvable : %s", readme_path)
+                log.warning("README.md not found: %s", readme_path)
 
-        items.append(pystray.MenuItem("⚙️ Configuration", _open_config))
-        items.append(pystray.MenuItem("📖 Documentation", _open_documentation))
-        items.append(pystray.MenuItem("Quitter", _quit_from_tray))
+        items.append(pystray.MenuItem(t("tray.config"), _open_config))
+        items.append(pystray.MenuItem(t("tray.documentation"), _open_documentation))
+        items.append(pystray.MenuItem(t("tray.quit"), _quit_from_tray))
         return items
 
     def _open_config(icon, item):
@@ -1719,7 +1725,7 @@ def _run_tray():
                     tray_icon.update_menu()
                 except Exception:
                     pass
-            log.info("Configuration fermée, profils rechargés")
+            log.info("Configuration closed, profiles reloaded")
         threading.Thread(target=_wait_and_reload, daemon=True).start()
 
     tray_icon = pystray.Icon(
@@ -1770,7 +1776,7 @@ def _launch_benchmark(wav_data: bytes):
         tmp.write(wav_data)
         tmp_path = tmp.name
 
-    log.info("Benchmark lancé dans une nouvelle fenêtre : %s", tmp_path)
+    log.info("Benchmark launched in new window: %s", tmp_path)
 
     # Use python.exe (not pythonw.exe) to get a visible console
     python_exe = sys.executable
@@ -1794,10 +1800,10 @@ def _run_benchmark_cli(wav_path: str):
 
     print()
     print("═" * 72)
-    print("  🎤 VOICE TRANSCRIBER — BENCHMARK")
+    print(f"  {t('bench.title')}")
     print("═" * 72)
-    print(f"  Audio : {audio_seconds:.1f}s ({len(wav_data):,} bytes)")
-    print(f"  Fichier : {wav_path}")
+    print(f"  {t('bench.audio', seconds=audio_seconds, bytes=len(wav_data))}")
+    print(f"  {t('bench.file', path=wav_path)}")
     print("═" * 72)
 
     results = []
@@ -1808,15 +1814,15 @@ def _run_benchmark_cli(wav_path: str):
 
         # Skip profiles without valid keys (except local)
         if pname != "local" and not pdata.get("key"):
-            print(f"\n  ⏭  {label} — clé API manquante, ignoré")
+            print(f"\n  ⏭  {t('bench.skip_no_key', label=label)}")
             continue
         if pname != "local":
             key = pdata.get("key", "")
             if key.startswith("votre-") or key.startswith("sk-votre-"):
-                print(f"\n  ⏭  {label} — clé API placeholder, ignoré")
+                print(f"\n  ⏭  {t('bench.skip_placeholder', label=label)}")
                 continue
 
-        print(f"\n  ▶  {label} (type={api_type})…")
+        print(f"\n  {t('bench.running', label=label, type=api_type)}")
         start = _time.perf_counter()
         try:
             if pname == "local":
@@ -1836,23 +1842,23 @@ def _run_benchmark_cli(wav_path: str):
                 text = _transcribe_with_api(pdata, wav_data)
 
             elapsed_ms = (_time.perf_counter() - start) * 1000
-            print(f"     Texte : {text}")
-            print(f"     Temps : {elapsed_ms:,.0f} ms")
+            print(f"     {t('bench.result_text', text=text)}")
+            print(f"     {t('bench.result_time', ms=elapsed_ms)}")
             results.append((label, elapsed_ms, "✓", text[:60]))
             _record_usage(pname, audio_seconds)
 
         except Exception as e:
             elapsed_ms = (_time.perf_counter() - start) * 1000
-            print(f"     ERREUR : {e}")
-            print(f"     Temps : {elapsed_ms:,.0f} ms")
+            print(f"     {t('bench.result_error', error=e)}")
+            print(f"     {t('bench.result_time', ms=elapsed_ms)}")
             results.append((label, elapsed_ms, "✗", str(e)[:60]))
 
     # Summary table
     print()
     print("═" * 72)
-    print("  📊 RÉCAPITULATIF (trié par vitesse)")
+    print(f"  {t('bench.summary')}")
     print("─" * 72)
-    print(f"  {'Profil':<28} {'Temps':>9}  {'':>3}  Texte")
+    print(f"  {t('bench.col_profile'):<28} {t('bench.col_time'):>9}  {'':>3}  {t('bench.col_text')}")
     print("─" * 72)
     for label, ms, status, text in sorted(results, key=lambda x: x[1]):
         print(f"  {label:<28} {ms:>8,.0f}ms  {status:>3}  {text}")
@@ -1865,7 +1871,7 @@ def _run_benchmark_cli(wav_path: str):
         pass
 
     print()
-    input("  Appuyez sur Entrée pour fermer… ")
+    input(f"  {t('bench.press_enter')}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1878,7 +1884,7 @@ def main():
     profile = api_profiles.get(active_api_profile, {})
     profile_label = profile.get("label", active_api_profile)
     profile_list = ", ".join(p.get("label", n) for n, p in api_profiles.items())
-    log.info("Voice Transcriber démarré (profil=%s, disponibles=[%s])",
+    log.info("Voice Transcriber started (profile=%s, available=[%s])",
              profile_label, profile_list)
 
     # Start overlay (tkinter) in its own thread
@@ -1895,7 +1901,7 @@ def main():
     _hotkey_trigger = _hotkey_parts[-1] if _hotkey_parts else "space"
     _hotkey_modifiers = _hotkey_parts[:-1] if len(_hotkey_parts) > 1 else ["ctrl"]
 
-    log.info("Raccourci configuré : %s", HOTKEY)
+    log.info("Hotkey configured: %s", HOTKEY)
     _last_toggle_time = [0.0]
 
     def _key_handler(event):
@@ -1933,7 +1939,7 @@ def main():
                     os.remove(restart_flag)
                 except OSError:
                     pass
-                log.info("Redémarrage demandé depuis la configuration.")
+                log.info("Restart requested from configuration.")
                 shutdown_event.set()
                 if tray_icon:
                     tray_icon.stop()
@@ -1947,7 +1953,7 @@ def main():
     except KeyboardInterrupt:
         pass
 
-    log.info("Voice Transcriber arrêté.")
+    log.info("Voice Transcriber stopped.")
     keyboard.unhook_all()
     if overlay_app:
         overlay_app.destroy()
