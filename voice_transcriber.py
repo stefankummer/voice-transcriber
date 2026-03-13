@@ -642,6 +642,9 @@ class OverlayApp:
         auto_enter = False
         log.info("Auto enter disabled from overlay")
         self.warn_root.withdraw()
+        # Refresh tray menu so the checkbox stays in sync
+        if tray_icon:
+            tray_icon.update_menu()
 
     # ── Download indicator ───────────────────────────────────────────────
 
@@ -1661,6 +1664,16 @@ def _run_tray():
             global auto_enter
             auto_enter = not auto_enter
             log.info("Auto enter: %s", "enabled" if auto_enter else "disabled")
+            # Sync overlay banner if recording is active
+            if overlay_app and overlay_app._state == "recording":
+                if auto_enter:
+                    overlay_app.root.after(0, lambda: (
+                        overlay_app.warn_canvas.itemconfig(overlay_app.warn_label, text=t("overlay.auto_enter_warning")),
+                        overlay_app.warn_canvas.itemconfig(overlay_app.warn_link, text=t("overlay.auto_enter_disable")),
+                        overlay_app.warn_root.deiconify(),
+                    ))
+                else:
+                    overlay_app.root.after(0, overlay_app.warn_root.withdraw)
 
         def _switch_profile(name):
             def handler(icon, item):
