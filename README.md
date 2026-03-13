@@ -1,4 +1,4 @@
-# 🎤 Voice Transcriber — v0.1 Beta
+# 🎤 Voice Transcriber — v0.2 Beta
 
 Windows voice dictation with multi-provider cloud transcription and local fallback.
 Record your voice with a hotkey, the transcribed text is automatically pasted at your cursor position.
@@ -22,6 +22,7 @@ Record your voice with a hotkey, the transcribed text is automatically pasted at
 - **Auto-purge** — `.wav`/`.txt` files and logs are cleaned up automatically
 - **Windows startup** — Add/remove from automatic startup
 - **Cancellation** — Escape cancels recording or transcription in progress
+- **Auto-enter overlay warning** — Visual indicator when auto-enter is active, with one-click disable
 
 ## Keyboard Shortcuts
 
@@ -196,4 +197,4 @@ python voice_transcriber.py --benchmark path/to/file.wav
 
 ---
 
-*Voice Transcriber v0.1 Beta — Stefan Kummer*
+*Voice Transcriber v0.2 Beta — Stefan Kummer*

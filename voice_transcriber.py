@@ -325,6 +325,46 @@ class OverlayApp:
         )
         self.notif_root.withdraw()
 
+        # ── Auto-enter warning banner ─────────────────────────────────────
+        WARN_BG = "#2a2418"
+        WARN_BORDER = "#4a3a28"
+        WARN_COLOR = "#d9a050"
+        WARN_LINK = "#c0883a"
+        warn_w, warn_h = 340, 32
+        wx = (screen_w - warn_w) // 2
+        wy = 16 + self.PILL_H + 6
+        self.warn_root = tk.Toplevel(self.root)
+        self.warn_root.overrideredirect(True)
+        self.warn_root.attributes("-topmost", True)
+        self.warn_root.attributes("-alpha", 0.93)
+        self.warn_root.configure(bg=self.TRANSPARENT)
+        self.warn_root.attributes("-transparentcolor", self.TRANSPARENT)
+        self.warn_root.geometry(f"{warn_w}x{warn_h}+{wx}+{wy}")
+
+        self.warn_canvas = tk.Canvas(
+            self.warn_root, width=warn_w, height=warn_h,
+            bg=self.TRANSPARENT, highlightthickness=0, bd=0,
+        )
+        self.warn_canvas.pack()
+        self._draw_pill(self.warn_canvas, 0, 0, warn_w, warn_h,
+                        fill=WARN_BG, outline=WARN_BORDER)
+        self.warn_label = self.warn_canvas.create_text(
+            warn_w // 2 - 30, warn_h // 2,
+            text="", anchor="center",
+            font=(self.FONT_FAMILY, 9), fill=WARN_COLOR,
+        )
+        self.warn_link = self.warn_canvas.create_text(
+            warn_w // 2 + 95, warn_h // 2,
+            text="", anchor="center",
+            font=(self.FONT_FAMILY, 9, "underline"), fill=WARN_LINK,
+        )
+        self.warn_canvas.tag_bind(self.warn_link, "<Button-1>", self._on_disable_auto_enter)
+        self.warn_canvas.tag_bind(self.warn_link, "<Enter>",
+                                  lambda e: self.warn_canvas.itemconfig(self.warn_link, fill="#ffffff"))
+        self.warn_canvas.tag_bind(self.warn_link, "<Leave>",
+                                  lambda e: self.warn_canvas.itemconfig(self.warn_link, fill=WARN_LINK))
+        self.warn_root.withdraw()
+
         # ── Animation state ──────────────────────────────────────────────
         self._state = "hidden"
         self._anim_after = None
@@ -400,6 +440,13 @@ class OverlayApp:
         self.canvas.itemconfig(self.esc_hint, state="normal")
         self.canvas.itemconfig(self.close_btn, state="normal")
         self.root.deiconify()
+        # Show auto-enter warning if enabled
+        if auto_enter:
+            self.warn_canvas.itemconfig(self.warn_label, text=t("overlay.auto_enter_warning"))
+            self.warn_canvas.itemconfig(self.warn_link, text=t("overlay.auto_enter_disable"))
+            self.warn_root.deiconify()
+        else:
+            self.warn_root.withdraw()
         self._anim_tick = 0
         self._animate_waves()
 
@@ -412,6 +459,7 @@ class OverlayApp:
             self._cancel_hide_timer()
             self._clear_anim_items()
             self._state = "transcribing"
+            self.warn_root.withdraw()
             self.root.deiconify()
             self._anim_tick = 0
             self._animate_spinner()
@@ -505,6 +553,7 @@ class OverlayApp:
         self._state = "hidden"
         self.canvas.itemconfig(self.esc_hint, state="hidden")
         self.canvas.itemconfig(self.close_btn, state="hidden")
+        self.warn_root.withdraw()
         self.root.withdraw()
 
     def _hide_all(self):
@@ -586,6 +635,13 @@ class OverlayApp:
     def _on_close_click(self, event=None):
         """Called when the ✕ button is clicked."""
         on_cancel()
+
+    def _on_disable_auto_enter(self, event=None):
+        """Called when the [disable] link is clicked on the auto-enter banner."""
+        global auto_enter
+        auto_enter = False
+        log.info("Auto enter disabled from overlay")
+        self.warn_root.withdraw()
 
     # ── Download indicator ───────────────────────────────────────────────
 
