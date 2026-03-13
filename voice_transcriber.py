@@ -1401,6 +1401,12 @@ def paste_text(text: str):
     clipboard_history.insert(0, text)
     if len(clipboard_history) > MAX_CLIPBOARD_HISTORY:
         clipboard_history.pop()
+    # Force tray menu refresh so new recording appears immediately
+    if tray_icon:
+        try:
+            tray_icon.update_menu()
+        except Exception:
+            pass
 
     pyperclip.copy(text)
     time.sleep(0.05)
@@ -1743,66 +1749,71 @@ def _run_tray():
         items.append(pystray.Menu.SEPARATOR)
 
         # ── Combined recordings/history submenu ──────────────────────
-        rec_files = sorted(
-            [f for f in os.listdir(RECORDINGS_DIR) if f.lower().endswith(".wav") and f.startswith("rec_")],
-            reverse=True,
-        )[:15]
+        try:
+            rec_files = sorted(
+                [f for f in os.listdir(RECORDINGS_DIR) if f.lower().endswith(".wav") and f.startswith("rec_")],
+                reverse=True,
+            )[:15]
+            log.debug("Recordings menu: %d wav files found", len(rec_files))
 
-        combined_items = []
+            combined_items = []
 
-        if rec_files:
-            def _retranscribe_handler(fpath):
-                def handler(icon, item):
-                    _retranscribe_file(fpath)
-                return handler
+            if rec_files:
+                def _retranscribe_handler(fpath):
+                    def handler(icon, item):
+                        _retranscribe_file(fpath)
+                    return handler
 
-            show_date = MAX_WAV_LIFETIME > 1440  # > 24h
-            combined_items.append(pystray.MenuItem(t("tray.retranscribe_header"), None, enabled=False))
-            for fname in rec_files:
-                fpath = os.path.join(RECORDINGS_DIR, fname)
-                try:
-                    parts = fname.replace("rec_", "").replace(".wav", "")
-                    dt = datetime.strptime(parts, "%Y%m%d_%H%M%S")
-                    label = dt.strftime("%d/%m %H:%M") if show_date else dt.strftime("%H:%M:%S")
-                except ValueError:
-                    label = fname
-                txt_path = fpath.rsplit(".", 1)[0] + ".txt"
-                preview = ""
-                if os.path.isfile(txt_path):
+                show_date = MAX_WAV_LIFETIME > 1440  # > 24h
+                combined_items.append(pystray.MenuItem(t("tray.retranscribe_header"), None, enabled=False))
+                for fname in rec_files:
+                    fpath = os.path.join(RECORDINGS_DIR, fname)
                     try:
-                        with open(txt_path, "r", encoding="utf-8") as ftxt:
-                            preview = ftxt.read(40).strip().replace("\n", " ")
-                    except OSError:
-                        pass
-                if preview:
-                    label += f"  {preview[:25]}" + ("…" if len(preview) > 25 else "")
-                else:
-                    try:
-                        duration_s = os.path.getsize(fpath) / (SAMPLE_RATE * 2 * CHANNELS)
-                        label += f" ({duration_s:.0f}s)"
-                    except OSError:
-                        pass
-                combined_items.append(pystray.MenuItem(label, _retranscribe_handler(fpath)))
+                        parts = fname.replace("rec_", "").replace(".wav", "")
+                        dt = datetime.strptime(parts, "%Y%m%d_%H%M%S")
+                        label = dt.strftime("%d/%m %H:%M") if show_date else dt.strftime("%H:%M:%S")
+                    except ValueError:
+                        label = fname
+                    txt_path = fpath.rsplit(".", 1)[0] + ".txt"
+                    preview = ""
+                    if os.path.isfile(txt_path):
+                        try:
+                            with open(txt_path, "r", encoding="utf-8") as ftxt:
+                                preview = ftxt.read(40).strip().replace("\n", " ")
+                        except OSError:
+                            pass
+                    if preview:
+                        label += f"  {preview[:25]}" + ("…" if len(preview) > 25 else "")
+                    else:
+                        try:
+                            duration_s = os.path.getsize(fpath) / (SAMPLE_RATE * 2 * CHANNELS)
+                            label += f" ({duration_s:.0f}s)"
+                        except OSError:
+                            pass
+                    combined_items.append(pystray.MenuItem(label, _retranscribe_handler(fpath)))
 
-        if clipboard_history:
-            def _copy_item(idx):
-                def handler(icon, item):
-                    pyperclip.copy(clipboard_history[idx])
-                    log.info("Copied from history: %s", clipboard_history[idx][:60])
-                return handler
+            if clipboard_history:
+                def _copy_item(idx):
+                    def handler(icon, item):
+                        pyperclip.copy(clipboard_history[idx])
+                        log.info("Copied from history: %s", clipboard_history[idx][:60])
+                    return handler
 
-            combined_items.append(pystray.Menu.SEPARATOR)
-            combined_items.append(pystray.MenuItem(t("tray.copy_header"), None, enabled=False))
-            for i, entry in enumerate(clipboard_history[:8]):
-                label = entry[:40] + "…" if len(entry) > 40 else entry
-                combined_items.append(pystray.MenuItem(label, _copy_item(i)))
+                combined_items.append(pystray.Menu.SEPARATOR)
+                combined_items.append(pystray.MenuItem(t("tray.copy_header"), None, enabled=False))
+                for i, entry in enumerate(clipboard_history[:8]):
+                    label = (entry[:40] + "…") if len(entry) > 40 else entry
+                    combined_items.append(pystray.MenuItem(label, _copy_item(i)))
 
-        if combined_items:
-            items.append(pystray.MenuItem(
-                t("tray.recordings"),
-                pystray.Menu(*combined_items),
-            ))
-        else:
+            if combined_items:
+                items.append(pystray.MenuItem(
+                    t("tray.recordings"),
+                    pystray.Menu(*combined_items),
+                ))
+            else:
+                items.append(pystray.MenuItem(t("tray.recordings_none"), None, enabled=False))
+        except Exception:
+            log.exception("Error building recordings submenu")
             items.append(pystray.MenuItem(t("tray.recordings_none"), None, enabled=False))
 
         items.append(pystray.MenuItem(t("tray.open_folder"), _open_recordings_folder))
@@ -1810,12 +1821,16 @@ def _run_tray():
         items.append(pystray.Menu.SEPARATOR)
 
         def _open_documentation(icon, item):
-            """Open README.md with the system default application."""
-            readme_path = os.path.join(SCRIPT_DIR, "README.md")
-            if os.path.isfile(readme_path):
-                os.startfile(readme_path)
+            """Open doc.{lang}.md with the system default application."""
+            from locales import get_language
+            lang = get_language()
+            doc_path = os.path.join(SCRIPT_DIR, f"doc.{lang}.md")
+            if not os.path.isfile(doc_path):
+                doc_path = os.path.join(SCRIPT_DIR, "doc.en.md")
+            if os.path.isfile(doc_path):
+                os.startfile(doc_path)
             else:
-                log.warning("README.md not found: %s", readme_path)
+                log.warning("Documentation not found: %s", doc_path)
 
         items.append(pystray.MenuItem(t("tray.config"), _open_config))
         items.append(pystray.MenuItem(t("tray.documentation"), _open_documentation))
