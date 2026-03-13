@@ -1797,12 +1797,16 @@ def _run_tray():
         items.append(pystray.Menu.SEPARATOR)
 
         def _open_documentation(icon, item):
-            """Open README.md with the system default application."""
-            readme_path = os.path.join(SCRIPT_DIR, "README.md")
-            if os.path.isfile(readme_path):
-                os.startfile(readme_path)
+            """Open doc.{lang}.md with the system default application."""
+            from locales import get_language
+            lang = get_language()
+            doc_path = os.path.join(SCRIPT_DIR, f"doc.{lang}.md")
+            if not os.path.isfile(doc_path):
+                doc_path = os.path.join(SCRIPT_DIR, "doc.en.md")
+            if os.path.isfile(doc_path):
+                os.startfile(doc_path)
             else:
-                log.warning("README.md not found: %s", readme_path)
+                log.warning("Documentation not found: %s", doc_path)
 
         items.append(pystray.MenuItem(t("tray.config"), _open_config))
         items.append(pystray.MenuItem(t("tray.documentation"), _open_documentation))
