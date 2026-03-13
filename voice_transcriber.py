@@ -329,6 +329,7 @@ class OverlayApp:
         self._state = "hidden"
         self._anim_after = None
         self._notif_after = None
+        self._hide_after = None       # Pending auto-hide timer (done/cancelled)
         self._anim_tick = 0
         self._anim_items = []         # Canvas items for animated icons
 
@@ -392,6 +393,7 @@ class OverlayApp:
 
     def _show_recording(self):
         self._stop_anim()
+        self._cancel_hide_timer()
         self._clear_anim_items()
         self._state = "recording"
         self.canvas.itemconfig(self.label, text=t("overlay.recording"), fill=self.TEXT_COLOR)
@@ -407,6 +409,7 @@ class OverlayApp:
     def _show_transcribing(self, word_count: int = 0):
         if self._state != "transcribing":
             self._stop_anim()
+            self._cancel_hide_timer()
             self._clear_anim_items()
             self._state = "transcribing"
             self.root.deiconify()
@@ -424,6 +427,7 @@ class OverlayApp:
 
     def _show_cancelled(self):
         self._stop_anim()
+        self._cancel_hide_timer()
         self._clear_anim_items()
         self._state = "done"
         self.canvas.itemconfig(self.label, text=t("overlay.cancelled"), fill=self.CANCEL_COLOR)
@@ -437,13 +441,14 @@ class OverlayApp:
                                         fill=self.CANCEL_COLOR, width=2)
         self._anim_items.append(item2)
         self.root.deiconify()
-        self.root.after(1500, self._hide)
+        self._hide_after = self.root.after(1500, self._auto_hide)
 
     def show_done(self):
         self.root.after(0, self._show_done)
 
     def _show_done(self):
         self._stop_anim()
+        self._cancel_hide_timer()
         self._clear_anim_items()
         self._state = "done"
         self.canvas.itemconfig(self.label, text=t("overlay.done"), fill=self.OK_COLOR)
@@ -454,13 +459,14 @@ class OverlayApp:
                                        fill=self.OK_COLOR, outline=self.OK_COLOR)
         self._anim_items.append(item)
         self.root.deiconify()
-        self.root.after(1800, self._hide)
+        self._hide_after = self.root.after(1800, self._auto_hide)
 
     def show_error(self, message: str):
         self.root.after(0, lambda: self._show_error(message))
 
     def _show_error(self, message: str):
         self._stop_anim()
+        self._cancel_hide_timer()
         self._clear_anim_items()
         self._state = "error"
         self.canvas.itemconfig(self.label, text=t("overlay.error"), fill=self.ERR_COLOR)
@@ -480,8 +486,21 @@ class OverlayApp:
     def hide(self):
         self.root.after(0, self._hide)
 
+    def _auto_hide(self):
+        """Called by auto-hide timers — only hides if still in done/error state."""
+        self._hide_after = None
+        if self._state in ("done", "error"):
+            self._hide()
+
+    def _cancel_hide_timer(self):
+        """Cancel any pending auto-hide timer."""
+        if self._hide_after:
+            self.root.after_cancel(self._hide_after)
+            self._hide_after = None
+
     def _hide(self):
         self._stop_anim()
+        self._cancel_hide_timer()
         self._clear_anim_items()
         self._state = "hidden"
         self.canvas.itemconfig(self.esc_hint, state="hidden")
@@ -575,6 +594,7 @@ class OverlayApp:
 
     def _show_downloading(self, model_name: str):
         self._stop_anim()
+        self._cancel_hide_timer()
         self._clear_anim_items()
         self._state = "transcribing"
         txt = t("overlay.downloading", name=model_name) if model_name else t("overlay.downloading_generic")
@@ -1378,6 +1398,14 @@ def transcribe_with_retry(wav_data: bytes, paste: bool = True):
             if overlay_app:
                 overlay_app.show_transcribing()
             text = transcribe(wav_data, on_progress=_on_progress)
+
+            # Re-check cancellation after transcribe returned
+            if cancel_event.is_set():
+                log.info("Transcription cancelled by user (after transcribe)")
+                if overlay_app:
+                    overlay_app.show_cancelled()
+                return None
+
             if text:
                 log.info("Transcription (attempt %d): %s", attempt, text)
                 _save_transcription_result(text)
@@ -1388,14 +1416,31 @@ def transcribe_with_retry(wav_data: bytes, paste: bool = True):
                 _purge_old_recordings()
                 return text
             else:
+                # Empty text could be from cancellation
+                if cancel_event.is_set():
+                    log.info("Transcription cancelled by user")
+                    if overlay_app:
+                        overlay_app.show_cancelled()
+                    return None
                 last_error = "No transcription returned"
                 log.warning("%s (attempt %d/%d)", last_error, attempt, MAX_RETRIES)
         except Exception as e:
+            # Cancel during API call often raises RuntimeError
+            if cancel_event.is_set():
+                log.info("Transcription cancelled by user (exception: %s)", e)
+                if overlay_app:
+                    overlay_app.show_cancelled()
+                return None
             last_error = str(e)
             log.error("API error (attempt %d/%d): %s", attempt, MAX_RETRIES, last_error)
 
         # Wait before retry (except on last attempt)
         if attempt < MAX_RETRIES:
+            if cancel_event.is_set():
+                log.info("Transcription cancelled, skipping retry")
+                if overlay_app:
+                    overlay_app.show_cancelled()
+                return None
             log.info("Retrying in %ds…", RETRY_DELAY)
             time.sleep(RETRY_DELAY)
 
