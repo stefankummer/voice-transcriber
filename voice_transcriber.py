@@ -1532,6 +1532,15 @@ def transcribe_with_retry(wav_data: bytes, paste: bool = True):
                 return None
 
             if text:
+                # Detect empty/meaningless transcriptions (e.g. "00:00" from Gemini)
+                import re
+                stripped = re.sub(r'[\s\W]+', '', text)
+                if re.fullmatch(r'[\d:]+', stripped):
+                    log.warning("Empty transcription detected: %r", text)
+                    if overlay_app:
+                        overlay_app.show_error(t("overlay.empty_recording"))
+                    return None
+
                 log.info("Transcription (attempt %d): %s", attempt, text)
                 _save_transcription_result(text)
                 if paste:
