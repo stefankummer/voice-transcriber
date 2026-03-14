@@ -1739,8 +1739,8 @@ def _run_tray():
             global auto_enter
             auto_enter = not auto_enter
             log.info("Auto enter: %s", "enabled" if auto_enter else "disabled")
-            # Sync overlay banner
-            if overlay_app:
+            # Sync overlay banner (only show if recording is in progress)
+            if overlay_app and overlay_app._state == "recording":
                 if auto_enter:
                     overlay_app.root.after(0, lambda: (
                         overlay_app._cancel_warn_auto_hide(),
