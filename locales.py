@@ -37,6 +37,8 @@ _STRINGS = {
         "overlay.downloading_generic":  "Downloading model…",
         "overlay.auto_enter_warning":   "⏎ Auto Enter enabled",
         "overlay.auto_enter_disable":   "[disable]",
+        "overlay.auto_enter_off":       "⏎ Auto Enter disabled",
+        "overlay.auto_enter_enable":    "[enable]",
 
         # ── Tray menu ───────────────────────────────────────────────────
         "tray.stop":                    "⏹ Stop",
@@ -201,6 +203,8 @@ _STRINGS = {
         "overlay.downloading_generic":  "Téléchargement du modèle…",
         "overlay.auto_enter_warning":   "⏎ Auto Enter activé",
         "overlay.auto_enter_disable":   "[désactiver]",
+        "overlay.auto_enter_off":       "⏎ Enter auto désactivé",
+        "overlay.auto_enter_enable":    "[activer]",
 
         # ── Tray menu ───────────────────────────────────────────────────
         "tray.stop":                    "⏹ Arrêter",

@@ -326,10 +326,17 @@ class OverlayApp:
         self.notif_root.withdraw()
 
         # ── Auto-enter warning banner ─────────────────────────────────────
-        WARN_BG = "#2a2418"
-        WARN_BORDER = "#4a3a28"
-        WARN_COLOR = "#d9a050"
-        WARN_LINK = "#c0883a"
+        # Colors for "enabled" state (warm orange — attention-grabbing)
+        self.WARN_ON_BG     = "#2a2418"
+        self.WARN_ON_BORDER = "#4a3a28"
+        self.WARN_ON_COLOR  = "#d9a050"
+        self.WARN_ON_LINK   = "#c0883a"
+        # Colors for "disabled" state (muted grey — calm)
+        self.WARN_OFF_BG     = "#1e2028"
+        self.WARN_OFF_BORDER = "#363848"
+        self.WARN_OFF_COLOR  = "#8088a0"
+        self.WARN_OFF_LINK   = "#6a7090"
+
         warn_w, warn_h = 340, 32
         wx = (screen_w - warn_w) // 2
         wy = 16 + self.PILL_H + 6
@@ -346,23 +353,27 @@ class OverlayApp:
             bg=self.TRANSPARENT, highlightthickness=0, bd=0,
         )
         self.warn_canvas.pack()
-        self._draw_pill(self.warn_canvas, 0, 0, warn_w, warn_h,
-                        fill=WARN_BG, outline=WARN_BORDER)
+        self.warn_pill = self._draw_pill(self.warn_canvas, 0, 0, warn_w, warn_h,
+                        fill=self.WARN_ON_BG, outline=self.WARN_ON_BORDER)
         self.warn_label = self.warn_canvas.create_text(
             warn_w // 2 - 30, warn_h // 2,
             text="", anchor="center",
-            font=(self.FONT_FAMILY, 9), fill=WARN_COLOR,
+            font=(self.FONT_FAMILY, 9), fill=self.WARN_ON_COLOR,
         )
         self.warn_link = self.warn_canvas.create_text(
             warn_w // 2 + 95, warn_h // 2,
             text="", anchor="center",
-            font=(self.FONT_FAMILY, 9, "underline"), fill=WARN_LINK,
+            font=(self.FONT_FAMILY, 9, "underline"), fill=self.WARN_ON_LINK,
         )
-        self.warn_canvas.tag_bind(self.warn_link, "<Button-1>", self._on_disable_auto_enter)
+        self.warn_canvas.tag_bind(self.warn_link, "<Button-1>", self._on_warn_link_click)
         self.warn_canvas.tag_bind(self.warn_link, "<Enter>",
                                   lambda e: self.warn_canvas.itemconfig(self.warn_link, fill="#ffffff"))
         self.warn_canvas.tag_bind(self.warn_link, "<Leave>",
-                                  lambda e: self.warn_canvas.itemconfig(self.warn_link, fill=WARN_LINK))
+                                  lambda e: self.warn_canvas.itemconfig(
+                                      self.warn_link,
+                                      fill=self.WARN_ON_LINK if self._warn_link_action == "disable" else self.WARN_OFF_LINK))
+        self._warn_link_action = "disable"  # current action: "disable" or "enable"
+        self._warn_auto_hide = None         # pending auto-hide timer for disabled banner
         self.warn_root.withdraw()
 
         # ── Animation state ──────────────────────────────────────────────
@@ -400,7 +411,7 @@ class OverlayApp:
     # ── Drawing helpers ──────────────────────────────────────────────────
 
     def _draw_pill(self, canvas, x1, y1, x2, y2, fill, outline):
-        """Draw a pill (stadium) shape."""
+        """Draw a pill (stadium) shape. Returns the canvas item ID."""
         r = (y2 - y1) // 2
         pts = [
             x1 + r, y1, x2 - r, y1,
@@ -410,7 +421,7 @@ class OverlayApp:
             x1, y2, x1, y2 - r,
             x1, y1 + r, x1, y1,
         ]
-        canvas.create_polygon(pts, smooth=True, fill=fill, outline=outline, width=1)
+        return canvas.create_polygon(pts, smooth=True, fill=fill, outline=outline, width=1)
 
     def _clear_anim_items(self):
         for item in self._anim_items:
@@ -440,13 +451,16 @@ class OverlayApp:
         self.canvas.itemconfig(self.esc_hint, state="normal")
         self.canvas.itemconfig(self.close_btn, state="normal")
         self.root.deiconify()
-        # Show auto-enter warning if enabled
+        # Show auto-enter status banner
         if auto_enter:
-            self.warn_canvas.itemconfig(self.warn_label, text=t("overlay.auto_enter_warning"))
-            self.warn_canvas.itemconfig(self.warn_link, text=t("overlay.auto_enter_disable"))
+            self._cancel_warn_auto_hide()
+            self.warn_canvas.itemconfig(self.warn_pill, fill=self.WARN_ON_BG, outline=self.WARN_ON_BORDER)
+            self.warn_canvas.itemconfig(self.warn_label, text=t("overlay.auto_enter_warning"), fill=self.WARN_ON_COLOR)
+            self.warn_canvas.itemconfig(self.warn_link, text=t("overlay.auto_enter_disable"), fill=self.WARN_ON_LINK)
+            self._warn_link_action = "disable"
             self.warn_root.deiconify()
         else:
-            self.warn_root.withdraw()
+            self._show_warn_disabled()
         self._anim_tick = 0
         self._animate_waves()
 
@@ -636,15 +650,61 @@ class OverlayApp:
         """Called when the ✕ button is clicked."""
         on_cancel()
 
+    def _on_warn_link_click(self, event=None):
+        """Dispatch click on the warn banner link to enable/disable."""
+        if self._warn_link_action == "disable":
+            self._on_disable_auto_enter()
+        else:
+            self._on_enable_auto_enter()
+
     def _on_disable_auto_enter(self, event=None):
         """Called when the [disable] link is clicked on the auto-enter banner."""
         global auto_enter
         auto_enter = False
         log.info("Auto enter disabled from overlay")
-        self.warn_root.withdraw()
+        self._show_warn_disabled()
         # Refresh tray menu so the checkbox stays in sync
         if tray_icon:
             tray_icon.update_menu()
+
+    def _on_enable_auto_enter(self, event=None):
+        """Called when the [enable] link is clicked on the disabled banner."""
+        global auto_enter
+        auto_enter = True
+        log.info("Auto enter enabled from overlay")
+        self._cancel_warn_auto_hide()
+        # Show the enabled warning banner (persistent while recording)
+        self.warn_canvas.itemconfig(self.warn_pill, fill=self.WARN_ON_BG, outline=self.WARN_ON_BORDER)
+        self.warn_canvas.itemconfig(self.warn_label, text=t("overlay.auto_enter_warning"), fill=self.WARN_ON_COLOR)
+        self.warn_canvas.itemconfig(self.warn_link, text=t("overlay.auto_enter_disable"), fill=self.WARN_ON_LINK)
+        self._warn_link_action = "disable"
+        self.warn_root.deiconify()
+        # Refresh tray menu so the checkbox stays in sync
+        if tray_icon:
+            tray_icon.update_menu()
+
+    def _show_warn_disabled(self):
+        """Show the 'auto-enter disabled' banner with [enable] link, auto-hides after 2s unless recording."""
+        self._cancel_warn_auto_hide()
+        self.warn_canvas.itemconfig(self.warn_pill, fill=self.WARN_OFF_BG, outline=self.WARN_OFF_BORDER)
+        self.warn_canvas.itemconfig(self.warn_label, text=t("overlay.auto_enter_off"), fill=self.WARN_OFF_COLOR)
+        self.warn_canvas.itemconfig(self.warn_link, text=t("overlay.auto_enter_enable"), fill=self.WARN_OFF_LINK)
+        self._warn_link_action = "enable"
+        self.warn_root.deiconify()
+        # Only auto-hide if not currently recording (keep visible during recording)
+        if self._state != "recording":
+            self._warn_auto_hide = self.root.after(2000, self._auto_hide_warn)
+
+    def _auto_hide_warn(self):
+        """Auto-hide the disabled banner after timeout."""
+        self._warn_auto_hide = None
+        self.warn_root.withdraw()
+
+    def _cancel_warn_auto_hide(self):
+        """Cancel any pending auto-hide timer for the warn banner."""
+        if self._warn_auto_hide:
+            self.root.after_cancel(self._warn_auto_hide)
+            self._warn_auto_hide = None
 
     # ── Download indicator ───────────────────────────────────────────────
 
@@ -1670,16 +1730,18 @@ def _run_tray():
             global auto_enter
             auto_enter = not auto_enter
             log.info("Auto enter: %s", "enabled" if auto_enter else "disabled")
-            # Sync overlay banner if recording is active
-            if overlay_app and overlay_app._state == "recording":
+            # Sync overlay banner
+            if overlay_app:
                 if auto_enter:
                     overlay_app.root.after(0, lambda: (
+                        overlay_app._cancel_warn_auto_hide(),
                         overlay_app.warn_canvas.itemconfig(overlay_app.warn_label, text=t("overlay.auto_enter_warning")),
                         overlay_app.warn_canvas.itemconfig(overlay_app.warn_link, text=t("overlay.auto_enter_disable")),
+                        setattr(overlay_app, '_warn_link_action', 'disable'),
                         overlay_app.warn_root.deiconify(),
                     ))
                 else:
-                    overlay_app.root.after(0, overlay_app.warn_root.withdraw)
+                    overlay_app.root.after(0, overlay_app._show_warn_disabled)
 
         def _switch_profile(name):
             def handler(icon, item):
