@@ -1,4 +1,4 @@
-# 🎤 Voice Transcriber — v0.2 Beta
+# 🎤 Voice Transcriber — v0.3 Beta
 
 Windows voice dictation with multi-provider cloud transcription and local fallback.
 Record your voice with a hotkey, the transcribed text is automatically pasted at your cursor position.
@@ -104,4 +104,16 @@ Keyboard shortcut (stop)
 
 ---
 
-*Voice Transcriber v0.2 Beta — Stefan Kummer*
+Changelog
+
+v0.3Beta
+- New : enable or disable auto-enter from modal
+- Fixed : do not copy in clipboard if transcription is empty
+
+v0.2Beta
+- Fixed : history menu does not work
+
+v0.1Beta
+- Initial release
+
+*Voice Transcriber v0.3 Beta — Stefan Kummer*
